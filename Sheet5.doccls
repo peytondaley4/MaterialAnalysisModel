@@ -1,0 +1,4 @@
+﻿'Handles clicking update button
+Private Sub UpdateMat_Click()
+    Call Module2.UpdateData
+End Sub

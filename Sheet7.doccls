@@ -1,0 +1,9 @@
+﻿'Handles clicking update sales button
+Private Sub FixSales_Click()
+    Call Module1.fixsalesdata
+End Sub
+
+'Handles clicking update sheet button
+Private Sub UpdateMov_Click()
+    Call Module1.fixMovement
+End Sub

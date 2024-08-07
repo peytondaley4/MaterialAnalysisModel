@@ -1,0 +1,378 @@
+﻿'Clears all text boxes and sets them to the default based on period chosen
+Public Sub Clear_Click()
+    NumPeriod.Value = ""
+    TextBox1.Value = 1000
+    TextBox2.Value = 4
+    If Sheet3.GroupBy = "Monthly" Then
+        TextBox3.Value = 12
+    ElseIf Sheet3.GroupBy.Value = "Quarterly" Then
+        TextBox3.Value = 4
+    Else
+        TextBox3.Value = 1
+    End If
+    TextBox4.Value = 0
+End Sub
+
+'Handles when the user clicks expavg specifically
+Private Sub ExpAvg_Click()
+    If Not enoughData() Then
+        Exit Sub
+    End If
+    'Clears old data and replaces with new tables
+    With Worksheets("FORECAST")
+        .Range("G27:N30").Clear
+        .Range("G27").Value = "Error"
+        .Range("H27").Value = "Exp Smoothing"
+        .Range("G28").Value = "RMSE"
+        .Range("G29").Value = "MAE"
+        .Range("G30").Value = "Tracking"
+        .ListObjects.Add(xlSrcRange, .Range("G27:H30"), , xlYes).Name = "Errors"
+        .ListObjects("Errors").TableStyle = "TableStyleMedium12"
+    End With
+    Dim vals() As Variant
+    Dim res() As Variant
+    Dim lr As Long
+    'Creates and stores forecast data in "data" sheet
+    lr = Worksheets("data").Range("K" & Rows.count).End(xlUp).Row
+    vals = Application.Transpose(Worksheets("data").Range("K2:K" & lr).Value)
+    res = Module4.calcAlpha(vals, TextBox1.Value, TextBox2.Value)
+    Worksheets("FORECAST").Range("H28").Value = Module4.RMSE(vals, res)
+    Worksheets("FORECAST").Range("H29").Value = Module4.MAE(vals, res)
+    Worksheets("FORECAST").Range("H30").Value = Module4.Tracking(vals, res)
+    Worksheets("data").Range("S1:T" & Rows.count).Clear
+    Worksheets("data").Range("W2:X" & Rows.count).Clear
+    Worksheets("data").Range("T1").Value = "Exp Smoothing"
+    Worksheets("data").Range("T2:T" & lr + TextBox4.Value).Value = Application.Transpose(res)
+    Worksheets("data").Range("S1:S" & lr).Value = Worksheets("data").Range("J1:J" & lr).Value
+    'In the case of forecasting ahead, populates Confidence intervals in "data" sheet
+    If TextBox4.Value <> 0 Then
+        Worksheets("data").Range("S2:S" & lr).AutoFill Destination:=Worksheets("data").Range("S2:S" & lr + TextBox4.Value)
+        Worksheets("data").Range("T" & lr).AutoFill Destination:=Worksheets("data").Range("T" & lr & ":T" & lr + TextBox4.Value)
+        Dim bound1() As Variant
+        Dim bound2() As Variant
+        Dim variance As Double
+        Dim alph As Double
+        alph = Worksheets("FORECAST").Range("H4").Value
+        variance = Worksheets("FORECAST").Range("I4").Value
+        ReDim bound1(1 To lr + TextBox4.Value)
+        ReDim bound2(1 To lr + TextBox4.Value)
+        'Actual formula for CI's in exponential average
+        For i = lr + 1 To lr + TextBox4.Value
+            bound1(i - 1) = 1.96 * variance * (1 + alph ^ 2 * (i - lr - 1)) ^ 0.5 + Worksheets("data").Range("T" & i).Value
+            bound2(i - 1) = -1.96 * variance * (1 + alph ^ 2 * (i - lr - 1)) ^ 0.5 + Worksheets("data").Range("T" & i).Value
+        Next i
+        Worksheets("data").Range("W2:W" & lr + TextBox4.Value).Value = Application.Transpose(bound1)
+        Worksheets("data").Range("X2:X" & lr + TextBox4.Value).Value = Application.Transpose(bound2)
+    End If
+    'Add series to chart and style bound lines
+    Worksheets("FORECAST").ChartObjects("Forecast").Activate
+    ActiveChart.SetSourceData Source:=Worksheets("data").Range("S1:T" & lr + TextBox4.Value)
+    ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("K1:K" & lr), SeriesLabels:=True
+    If TextBox4.Value <> 0 Then
+        ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("W1:W" & lr + TextBox4.Value), SeriesLabels:=True
+        ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("X1:X" & lr + TextBox4.Value), SeriesLabels:=True
+        ActiveChart.SeriesCollection(3).Select
+        With Selection.Format.Line
+            .Visible = msoTrue
+            .DashStyle = msoLineSysDot
+        End With
+        ActiveChart.SeriesCollection(4).Select
+        With Selection.Format.Line
+            .Visible = msoTrue
+            .DashStyle = msoLineSysDash
+        End With
+    End If
+    'Apply conditional format rules over tracking signal
+    Module5.CondFormat
+    Application.StatusBar = "Ready"
+End Sub
+
+'Same as previous function, except with Holt's trend method instead
+Private Sub holts_click()
+    If Not enoughData() Then
+        Exit Sub
+    End If
+    With Worksheets("FORECAST")
+        .Range("G27:N30").Clear
+        .Range("G27").Value = "Error"
+        .Range("H27").Value = "Holt's"
+        .Range("G28").Value = "RMSE"
+        .Range("G29").Value = "MAE"
+        .Range("G30").Value = "Tracking"
+        .ListObjects.Add(xlSrcRange, .Range("G27:H30"), , xlYes).Name = "Errors"
+        .ListObjects("Errors").TableStyle = "TableStyleMedium12"
+    End With
+    Dim vals() As Variant
+    Dim res() As Variant
+    Dim lr As Long
+    lr = Worksheets("data").Range("K" & Rows.count).End(xlUp).Row
+    vals = Application.Transpose(Worksheets("data").Range("K2:K" & lr).Value)
+    res = Module4.calcHolts(vals, TextBox1.Value, TextBox2.Value, TextBox4.Value)
+    Worksheets("FORECAST").Range("H28").Value = Module4.RMSE(vals, res)
+    Worksheets("FORECAST").Range("H29").Value = Module4.MAE(vals, res)
+    Worksheets("FORECAST").Range("H30").Value = Module4.Tracking(vals, res)
+    Worksheets("data").Range("S1:T" & Rows.count).Clear
+    Worksheets("data").Range("T1").Value = "Holt's"
+    Worksheets("data").Range("T2:T" & lr + TextBox4.Value).Value = Application.Transpose(res)
+    Worksheets("data").Range("S1:S" & lr).Value = Worksheets("data").Range("J1:J" & lr).Value
+    If TextBox4.Value <> 0 Then
+        Worksheets("data").Range("S2:S" & lr).AutoFill Destination:=Worksheets("data").Range("S2:S" & lr + TextBox4.Value)
+        Dim bound1() As Variant
+        Dim bound2() As Variant
+        Dim variance As Double
+        Dim alph As Double
+        Dim beta As Double
+        alph = Worksheets("FORECAST").Range("H4").Value
+        beta = Worksheets("FORECAST").Range("I4").Value
+        variance = Worksheets("FORECAST").Range("J4").Value
+        ReDim bound1(1 To lr + TextBox4.Value)
+        ReDim bound2(1 To lr + TextBox4.Value)
+        For i = lr + 1 To lr + TextBox4.Value
+            bound1(i - 1) = 1.96 * variance * (1 + (i - lr - 1) * (alph ^ 2 + alph * beta * (i - lr) + beta ^ 2 * (i - lr) * (2 * (i - lr) - 1) / 6)) ^ 0.5 + Worksheets("data").Range("T" & i).Value
+            bound2(i - 1) = -1.96 * variance * (1 + (i - lr - 1) * (alph ^ 2 + alph * beta * (i - lr) + beta ^ 2 * (i - lr) * (2 * (i - lr) - 1) / 6)) ^ 0.5 + Worksheets("data").Range("T" & i).Value
+        Next i
+        Worksheets("data").Range("W2:W" & lr + TextBox4.Value).Value = Application.Transpose(bound1)
+        Worksheets("data").Range("X2:X" & lr + TextBox4.Value).Value = Application.Transpose(bound2)
+    End If
+    Worksheets("FORECAST").ChartObjects("Forecast").Activate
+    ActiveChart.SetSourceData Source:=Worksheets("data").Range("S1:T" & lr + TextBox4.Value)
+    ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("K1:K" & lr), SeriesLabels:=True
+    If TextBox4.Value <> 0 Then
+        ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("W1:W" & lr + TextBox4.Value), SeriesLabels:=True
+        ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("X1:X" & lr + TextBox4.Value), SeriesLabels:=True
+        ActiveChart.SeriesCollection(3).Select
+        With Selection.Format.Line
+            .Visible = msoTrue
+            .DashStyle = msoLineSysDot
+        End With
+        ActiveChart.SeriesCollection(4).Select
+        With Selection.Format.Line
+            .Visible = msoTrue
+            .DashStyle = msoLineSysDash
+        End With
+    End If
+    Module5.CondFormat
+    Application.StatusBar = "Ready"
+End Sub
+
+'Same as previous but for moving average, and no step forward or confidence intervals
+Private Sub MovingAverage_Click()
+    If Not enoughData() Then
+        Exit Sub
+    End If
+    If NumPeriod.Value <= 0 Or NumPeriod.Value = "" Then
+        MsgBox ("Invalid input")
+        Exit Sub
+    End If
+    With Worksheets("FORECAST")
+        .Range("G27:N30").Clear
+        .Range("G27").Value = "Error"
+        .Range("H27").Value = NumPeriod.Value & "-" & Left(Sheet3.GroupBy.Value, Len(Sheet3.GroupBy.Value) - 2) & " Avg"
+        .Range("G28").Value = "RMSE"
+        .Range("G29").Value = "MAE"
+        .Range("G30").Value = "Tracking"
+        .ListObjects.Add(xlSrcRange, .Range("G27:H30"), , xlYes).Name = "Errors"
+        .ListObjects("Errors").TableStyle = "TableStyleMedium12"
+    End With
+    Dim vals() As Variant
+    Dim res() As Variant
+    Dim lr As Long
+    Worksheets("data").Range("S1:T" & Rows.count).Clear
+    lr = Worksheets("data").Range("K" & Rows.count).End(xlUp).Row
+    vals = Application.Transpose(Worksheets("data").Range("K2:K" & lr).Value)
+    res = Module4.nMonthAvg(NumPeriod.Value, vals)
+    Worksheets("FORECAST").Range("H28").Value = Module4.RMSE(vals, res)
+    Worksheets("FORECAST").Range("H29").Value = Module4.MAE(vals, res)
+    Worksheets("FORECAST").Range("H30").Value = Module4.Tracking(vals, res)
+    Worksheets("data").Range("S1").Value = NumPeriod.Value & "-" & Left(Sheet3.GroupBy.Value, Len(Sheet3.GroupBy.Value) - 2) & " Avg"
+    Worksheets("data").Range("S2:S" & lr).Value = Application.Transpose(res)
+    Worksheets("FORECAST").ChartObjects("Forecast").Activate
+    ActiveChart.SetSourceData Source:=Worksheets("data").Range("J1:K" & lr)
+    ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("S1:S" & lr), SeriesLabels:=True
+    Module5.CondFormat
+End Sub
+
+'Handles invalid input when clicking out of textbox
+Private Sub NumPeriod_LostFocus()
+    If (Not IsNumeric(NumPeriod.Value) Or NumPeriod.Value < 1) And NumPeriod.Value <> "" Then
+        MsgBox "Invalid value"
+        NumPeriod.Value = ""
+    End If
+End Sub
+
+'Handles invalid input when clicking out of textbox
+Private Sub texbox1_LostFocus()
+    If (Not IsNumeric(texbox1.Value) Or TextBox1.Value < 1) And TextBox1.Value <> "" Then
+        MsgBox "Invalid value"
+        TextBox1.Value = ""
+    End If
+End Sub
+
+'Handles invalid input when clicking out of textbox
+Private Sub textbox2_LostFocus()
+    If (Not IsNumeric(TextBox2.Value) Or TextBox2.Value < 1) And TextBox2.Value <> "" Then
+        MsgBox "Invalid value"
+        TextBox2.Value = ""
+    End If
+End Sub
+
+'Handles invalid input when clicking out of textbox
+Private Sub textbox3_LostFocus()
+    If (Not IsNumeric(TextBox3.Value) Or TextBox3.Value < 1) And TextBox3.Value <> "" Then
+        MsgBox "Invalid value"
+        TextBox3.Value = ""
+    End If
+End Sub
+
+'Handles invalid input when clicking out of textbox
+Private Sub textbox4_LostFocus()
+    If (Not IsNumeric(TextBox4.Value) Or TextBox4.Value < 1) And TextBox4.Value <> "" Then
+        MsgBox "Invalid value"
+        TextBox4.Value = ""
+    End If
+End Sub
+
+'Checks data and then calls main function to display all data
+Private Sub RunAll_Click()
+    If Not enoughData() Then
+        Exit Sub
+    End If
+    Call Module4.main
+    Module5.CondFormat
+End Sub
+
+'Same as previous click functions, but with holt-winters
+Private Sub Winters_Click()
+    If Not enoughData() Then
+        Exit Sub
+    End If
+    With Worksheets("FORECAST")
+        .Range("G27:N30").Clear
+        .Range("G27").Value = "Error"
+        .Range("H27").Value = "Winter's ADD"
+        .Range("G28").Value = "RMSE"
+        .Range("G29").Value = "MAE"
+        .Range("G30").Value = "Tracking"
+        .ListObjects.Add(xlSrcRange, .Range("G27:H30"), , xlYes).Name = "Errors"
+        .ListObjects("Errors").TableStyle = "TableStyleMedium12"
+    End With
+    Dim vals() As Variant
+    Dim res() As Variant
+    Dim lr As Long
+    lr = Worksheets("data").Range("K" & Rows.count).End(xlUp).Row
+    vals = Application.Transpose(Worksheets("data").Range("K2:K" & lr).Value)
+    res = Module4.calcWinters(vals, TextBox1.Value, TextBox2.Value, TextBox3.Value, False, TextBox4.Value)
+    Worksheets("FORECAST").Range("H28").Value = Module4.RMSE(vals, res)
+    Worksheets("FORECAST").Range("H29").Value = Module4.MAE(vals, res)
+    Worksheets("FORECAST").Range("H30").Value = Module4.Tracking(vals, res)
+    Worksheets("data").Range("S1:T" & Rows.count).Clear
+    Worksheets("data").Range("T1").Value = "Winter's ADD"
+    Worksheets("data").Range("T2:T" & lr + TextBox4.Value).Value = Application.Transpose(res)
+    Worksheets("data").Range("S1:S" & lr).Value = Worksheets("data").Range("J1:J" & lr).Value
+    If TextBox4.Value <> 0 Then
+        Worksheets("data").Range("S2:S" & lr).AutoFill Destination:=Worksheets("data").Range("S2:S" & lr + TextBox4.Value)
+        Dim bound1() As Variant
+        Dim bound2() As Variant
+        Dim variance As Double
+        Dim alph As Double
+        Dim beta As Double
+        Dim gamma As Double
+        alph = Worksheets("FORECAST").Range("H4").Value
+        beta = Worksheets("FORECAST").Range("I4").Value
+        gamma = Worksheets("FORECAST").Range("J4").Value
+        variance = Worksheets("FORECAST").Range("K4").Value
+        Dim k As Long
+        ReDim bound1(1 To lr + TextBox4.Value)
+        ReDim bound2(1 To lr + TextBox4.Value)
+        For i = lr + 1 To lr + TextBox4.Value
+            k = (i - lr - 1) \ TextBox3.Value
+            bound1(i - 1) = 1.96 * variance * (1 + (i - lr - 1) * (alph ^ 2 + alph * beta * (i - lr) + beta ^ 2 * (i - lr) * (2 * (i - lr) - 1) / 6) + gamma * k * (2 * alph + gamma + beta * TextBox3.Value * (k + 1))) ^ 0.5 + Worksheets("data").Range("T" & i).Value
+            bound2(i - 1) = -1.96 * variance * (1 + (i - lr - 1) * (alph ^ 2 + alph * beta * (i - lr) + beta ^ 2 * (i - lr) * (2 * (i - lr) - 1) / 6) + gamma * k * (2 * alph + gamma + beta * TextBox3.Value * (k + 1))) ^ 0.5 + Worksheets("data").Range("T" & i).Value
+        Next i
+        Worksheets("data").Range("W2:W" & lr + TextBox4.Value).Value = Application.Transpose(bound1)
+        Worksheets("data").Range("X2:X" & lr + TextBox4.Value).Value = Application.Transpose(bound2)
+    End If
+    Worksheets("FORECAST").ChartObjects("Forecast").Activate
+    ActiveChart.SetSourceData Source:=Worksheets("data").Range("S1:T" & lr + TextBox4.Value)
+    ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("K1:K" & lr), SeriesLabels:=True
+    If TextBox4.Value <> 0 Then
+        ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("W1:W" & lr + TextBox4.Value), SeriesLabels:=True
+        ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("X1:X" & lr + TextBox4.Value), SeriesLabels:=True
+        ActiveChart.SeriesCollection(3).Select
+        With Selection.Format.Line
+            .Visible = msoTrue
+            .DashStyle = msoLineSysDot
+        End With
+        ActiveChart.SeriesCollection(4).Select
+        With Selection.Format.Line
+            .Visible = msoTrue
+            .DashStyle = msoLineSysDash
+        End With
+    End If
+    Module5.CondFormat
+    Application.StatusBar = "Ready"
+End Sub
+
+'Same as previous but with multiplicative, and error bounds created through simulation instead of calculation
+Private Sub WintersMul_Click()
+    If Not enoughData() Then
+        Exit Sub
+    End If
+    With Worksheets("FORECAST")
+        .Range("G27:N30").Clear
+        .Range("G27").Value = "Error"
+        .Range("H27").Value = "Winter's MUL"
+        .Range("G28").Value = "RMSE"
+        .Range("G29").Value = "MAE"
+        .Range("G30").Value = "Tracking"
+        .ListObjects.Add(xlSrcRange, .Range("G27:H30"), , xlYes).Name = "Errors"
+        .ListObjects("Errors").TableStyle = "TableStyleMedium12"
+    End With
+    Dim vals() As Variant
+    Dim res() As Variant
+    Dim lr As Long
+    lr = Worksheets("data").Range("K" & Rows.count).End(xlUp).Row
+    vals = Application.Transpose(Worksheets("data").Range("K2:K" & lr).Value)
+    res = Module4.calcWinters(vals, TextBox1.Value, TextBox2.Value, TextBox3.Value, True, TextBox4.Value)
+    Worksheets("FORECAST").Range("H28").Value = Module4.RMSE(vals, res)
+    Worksheets("FORECAST").Range("H29").Value = Module4.MAE(vals, res)
+    Worksheets("FORECAST").Range("H30").Value = Module4.Tracking(vals, res)
+    Worksheets("data").Range("S1:T" & Rows.count).Clear
+    Worksheets("data").Range("T1").Value = "Winter's MUL"
+    Worksheets("data").Range("T2:T" & lr + TextBox4.Value).Value = Application.Transpose(res)
+    Worksheets("data").Range("S1:S" & lr).Value = Worksheets("data").Range("J1:J" & lr).Value
+    If TextBox4.Value <> 0 Then
+        Worksheets("data").Range("S2:S" & lr).AutoFill Destination:=Worksheets("data").Range("S2:S" & lr + TextBox4.Value)
+        Worksheets("data").Range("W2:X" & lr + TextBox4.Value).Value = Module5.bootStrapPI(vals, res, TextBox4.Value, Worksheets("FORECAST").Range("H4").Value, Worksheets("FORECAST").Range("I4").Value, Worksheets("FORECAST").Range("J4").Value)
+    End If
+    Worksheets("FORECAST").ChartObjects("Forecast").Activate
+    ActiveChart.SetSourceData Source:=Worksheets("data").Range("S1:T" & lr + TextBox4.Value)
+    ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("K1:K" & lr), SeriesLabels:=True
+    If TextBox4.Value <> 0 Then
+        ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("W1:W" & lr + TextBox4.Value), SeriesLabels:=True
+        ActiveChart.SeriesCollection.Add Source:=Worksheets("data").Range("X1:X" & lr + TextBox4.Value), SeriesLabels:=True
+        ActiveChart.SeriesCollection(3).Select
+        With Selection.Format.Line
+            .Visible = msoTrue
+            .DashStyle = msoLineSysDot
+        End With
+        ActiveChart.SeriesCollection(4).Select
+        With Selection.Format.Line
+            .Visible = msoTrue
+            .DashStyle = msoLineSysDash
+        End With
+    End If
+    Module5.CondFormat
+    Application.StatusBar = "Ready"
+End Sub
+
+'Checks to make sure there is enough data to forecast out
+Private Function enoughData() As Boolean
+    Dim lr As Long
+    lr = Worksheets("data").Range("K" & Rows.count).End(xlUp).Row
+    enoughData = True
+    If lr = 2 Then
+        MsgBox "No data provided"
+        enoughData = False
+    End If
+End Function

@@ -1,0 +1,478 @@
+﻿'Variable serving as mutex to lock filtering sheet until after clear
+Dim clearing As Boolean
+
+'Clears entries from comboboxes, deletes tables and chart data
+Public Sub Clear_Click()
+    clearing = True
+    TextBox1.Value = "1/2/2018"
+    TextBox2.Value = Date
+    ProductGroup.Clear: ProductGroup.Value = ""
+    ProductHier.Clear: ProductHier.Value = ""
+    MatCat.Clear: MatCat.Value = ""
+    MatGroup.Clear: MatGroup.Value = ""
+    ValClass.Clear: ValClass.Value = ""
+    Material.Clear: Material.Value = ""
+    MatNum.Clear: MatNum.Value = ""
+    Raws.Clear: Raws.Value = ""
+    On Error Resume Next
+    Variables.selected(Variables.ListIndex) = False
+    On Error GoTo 0
+    If Not Worksheets("ZMMMATERIAL").AutoFilterMode Then
+        Worksheets("ZMMMATERIAL").Range("A1").AutoFilter
+    End If
+    If Not Worksheets("MOVEMENT").AutoFilterMode Then
+        Worksheets("MOVEMENT").Range("A1").AutoFilter
+    End If
+    TextBox3.Value = ""
+    TextBox4.Value = ""
+    TextBox5.Value = ""
+    TextBox6.Value = ""
+    TextBox7.Value = ""
+    TextBox8.Value = ""
+    TextBox9.Value = ""
+    Plant.selected(0) = True
+    For i = 1 To 3: Plant.selected(i) = False: Next i
+    ProductGroup.List = Worksheets("data").Range("ProGroup").Value
+    ProductHier.List = Worksheets("data").Range("ProHier").Value
+    MatCat.List = Worksheets("data").Range("MatCat").Value
+    MatGroup.List = Worksheets("data").Range("MatGroup").Value
+    Material.List = Worksheets("data").Range("Mat").Value
+    ValClass.List = Worksheets("data").Range("ValClass").Value
+    MatNum.List = Worksheets("data").Range("MatNum").Value
+    Call GenData_Click
+    Worksheets("ANALYSIS").Range("A31", Cells(Rows.count, Columns.count)).Clear
+    clearing = False
+End Sub
+
+'Removes entries from comboboxes, other than the box of a specific index
+Private Sub RemEntries(index As Integer)
+    clearing = True
+    Dim val As String
+    If index <> 1 Then
+        val = ProductGroup.Value
+        ProductGroup.Clear
+        If val <> "" Then
+            ProductGroup.Value = val
+        End If
+    End If
+    If index <> 2 Then
+        val = ProductHier.Value
+        ProductHier.Clear
+        If val <> "" Then
+            ProductHier.Value = val
+        End If
+    End If
+    If index <> 3 Then
+        val = MatCat.Value
+        MatCat.Clear
+        If val <> "" Then
+            MatCat.Value = val
+        End If
+    End If
+    If index <> 4 Then
+        val = MatGroup.Value
+        MatGroup.Clear
+        If val <> "" Then
+            MatGroup.Value = val
+        End If
+    End If
+    If index <> 5 Then
+        val = ValClass.Value
+        ValClass.Clear
+        If val <> "" Then
+            ValClass.Value = val
+        End If
+    End If
+    If index <> 6 Then
+        val = Material.Value
+        Material.Clear
+        If val <> "" Then
+            Material.Value = val
+        End If
+    End If
+    If index <> 7 Then
+        val = MatNum.Value
+        MatNum.Clear
+        If val <> "" Then
+            MatNum.Value = val
+        End If
+    End If
+    clearing = False
+End Sub
+
+'Based on variable selected run function to produce the desired data
+Private Sub GenData_Click()
+    If MatNum.ListCount = 0 Or Material.ListCount = 0 Then
+        MsgBox ("No materials selected")
+        Exit Sub
+    End If
+    On Error Resume Next
+    Worksheets("data").Range("A1").ListObject.DataBodyRange.Rows.delete
+    On Error GoTo 0
+    If Variables.selected(0) Then
+        Call getsales
+    ElseIf Variables.selected(1) Then
+        Call getUnits
+    ElseIf Variables.selected(2) Then
+        If Raws.Value <> "" Then
+            Call rawData(Left(Raws.Value, Len(Raws.Value) - 4))
+        End If
+    ElseIf Variables.selected(3) Then
+        Call getUsage
+    ElseIf Variables.selected(4) Then
+        Call getWeight
+    End If
+    ThisWorkbook.RefreshAll
+    Call finalData
+    If Not clearing And GenTables.Value Then
+        Call Module3.main
+    End If
+End Sub
+
+'Keeps the checkbox from visually glitching upon click
+Private Sub GenTables_Click()
+    GenTables.BackColor = GenTables.TopLeftCell.Interior.Color
+End Sub
+
+'Run various functions to produce quick data
+Private Sub GetStats_Click()
+    If MatNum.ListCount = 0 Or Material.ListCount = 0 Then
+        MsgBox ("No materials selected")
+        Exit Sub
+    End If
+    Dim res() As Variant
+    res = countCust()
+    TextBox4.Value = res(0)
+    TextBox5.Value = res(1)
+    If Material.Value <> "" Then
+        TextBox3.Value = 1
+    Else
+        TextBox3.Value = Material.ListCount
+    End If
+    res = countSup()
+    TextBox6.Value = res(1)
+    TextBox7.Value = res(0)
+    TextBox8.Value = res(2)
+    TextBox9.Value = countUsed()
+End Sub
+
+'Run function to aggregate data based on periodicity desired
+Private Sub GroupBy_Change()
+    Call finalData
+End Sub
+
+'Handle autofilter on Movement and Zmmmaterial based on plant selected
+Private Sub Plant_Change()
+    If Plant.selected(0) Then
+        Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=1
+        Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=1
+        Exit Sub
+    End If
+    Dim selected() As Variant
+    ReDim selected(0 To 0)
+    Dim count As Long
+    count = 0
+    For i = 1 To Plant.ListCount - 1
+        If Plant.selected(i) Then
+            ReDim Preserve selected(0 To count)
+            selected(count) = Plant.List(i)
+            count = count + 1
+        End If
+    Next i
+    Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=1, Criteria1:=selected, Operator:=xlFilterValues
+    Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=1, Criteria1:=selected, Operator:=xlFilterValues
+End Sub
+
+'Handle when a product group is selected
+Private Sub ProductGroup_Change()
+    If Not clearing Then
+        If ProductGroup.Value = "" Then
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=16
+        Else
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=16, Criteria1:=ProductGroup.Value
+        End If
+        Call fillBoxes(1)
+    End If
+End Sub
+
+'Handle when a product hierarchy is selected
+Private Sub ProductHier_Change()
+    If Not clearing Then
+        If ProductHier.Value = "" Then
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=12
+        Else
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=12, Criteria1:=ProductHier.Value
+        End If
+        Call fillBoxes(2)
+    End If
+End Sub
+
+'Handle when a material category is selected
+Private Sub MatCat_Change()
+    If Not clearing Then
+        If MatCat.Value = "" Then
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=25
+        Else
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=25, Criteria1:=MatCat.Value
+        End If
+        Call fillBoxes(3)
+    End If
+End Sub
+
+'Handle when a material group is selected
+Private Sub MatGroup_Change()
+    If Not clearing Then
+        If MatGroup.Value = "" Then
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=14
+        Else
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=14, Criteria1:=MatGroup.Value
+        End If
+        Call fillBoxes(4)
+    End If
+End Sub
+
+'Change autofilter on date when enter key is hit in "From:" date form
+Private Sub TextBox1_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
+    If KeyCode = vbKeyReturn Then
+        On Error Resume Next
+        Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=4, Criteria1:=">=" & CDate(TextBox1.Value), Operator:=xlAnd, Criteria2:="<=" & CDate(TextBox2.Value)
+        On Error GoTo 0
+    End If
+End Sub
+
+'Change autofilter on date when enter key is hit in "To:" date form
+Private Sub TextBox2_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
+    If KeyCode = vbKeyReturn Then
+        On Error Resume Next
+        Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=4, Criteria1:=">=" & CDate(TextBox1.Value), Operator:=xlAnd, Criteria2:="<=" & CDate(TextBox2.Value)
+        On Error GoTo 0
+    End If
+End Sub
+
+'Handle when a valuation class is selected
+Private Sub ValClass_Change()
+    If Not clearing Then
+        If ValClass.Value = "" Then
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=21
+        Else
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=21, Criteria1:=ValClass.Value
+        End If
+        Call fillBoxes(5)
+    End If
+End Sub
+
+'Handle when a material is selected
+Private Sub Material_Change()
+    If Not clearing Then
+        If Material.Value = "" Then
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=3
+        Else
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=3, Criteria1:=Material.Value
+        End If
+        Call fillBoxes(6)
+    End If
+End Sub
+
+'Handle when a material number is selected
+Private Sub MatNum_Change()
+    If Not clearing Then
+        If MatNum.Value = "" Then
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=2
+        Else
+            Worksheets("ZMMMATERIAL").Range("A1").AutoFilter Field:=2, Criteria1:=MatNum.Value
+        End If
+        Call fillBoxes(7)
+    End If
+End Sub
+
+'Fill the dropdown options for the comboboxes, changes dynamically with current selection.
+'AutoFills the box when only 1 option is available
+Public Function fillBoxes(index As Integer)
+    Call RemEntries(index)
+    Dim lr As Long
+    Dim proGroups As Scripting.Dictionary: Set proGroups = New Scripting.Dictionary
+    Dim hier As Scripting.Dictionary: Set hier = New Scripting.Dictionary
+    Dim cats As Scripting.Dictionary: Set cats = New Scripting.Dictionary
+    Dim matGroups As Scripting.Dictionary: Set matGroups = New Scripting.Dictionary
+    Dim Class As Scripting.Dictionary: Set Class = New Scripting.Dictionary
+    Dim mats As Scripting.Dictionary: Set mats = New Scripting.Dictionary
+    Dim nums As Scripting.Dictionary: Set nums = New Scripting.Dictionary
+    Dim rng As Range
+    lr = Worksheets("ZMMMATERIAL").Range("A" & Rows.count).End(xlUp).Row
+    On Error Resume Next
+    Set rng = Worksheets("ZMMMATERIAL").Range("A2:AA" & lr).Rows.SpecialCells(xlCellTypeVisible)
+    On Error GoTo 0
+    If rng Is Nothing Then
+        Exit Function
+    End If
+    For a = 1 To rng.Areas.count
+        For r = 1 To rng.Areas(a).Rows.count
+            proGroups(rng.Areas(a).Cells(r, "P").Value) = True
+            hier(rng.Areas(a).Cells(r, "L").Value) = True
+            cats(rng.Areas(a).Cells(r, "Y").Value) = True
+            matGroups(rng.Areas(a).Cells(r, "N").Value) = True
+            Class(rng.Areas(a).Cells(r, "U").Value) = True
+            mats(rng.Areas(a).Cells(r, "C").Value) = True
+            nums(rng.Areas(a).Cells(r, "B").Value) = True
+        Next r
+    Next a
+    clearing = True
+    If index <> 1 Then
+        For Each key In proGroups.Keys
+            ProductGroup.AddItem key
+        Next key
+        If proGroups.count = 1 Then
+            ProductGroup.Value = proGroups.Keys(0)
+        Else
+            ProductGroup.Value = ""
+        End If
+    End If
+    If index <> 2 Then
+        For Each key In hier.Keys
+            ProductHier.AddItem key
+        Next key
+        If hier.count = 1 Then
+            ProductHier.Value = hier.Keys(0)
+        Else
+            ProductHier.Value = ""
+        End If
+    End If
+    If index <> 3 Then
+        For Each key In cats.Keys
+            MatCat.AddItem key
+        Next key
+        If cats.count = 1 Then
+            MatCat.Value = cats.Keys(0)
+        Else
+            MatCat.Value = ""
+        End If
+    End If
+    If index <> 4 Then
+        For Each key In matGroups.Keys
+            MatGroup.AddItem key
+        Next key
+        If matGroups.count = 1 Then
+            MatGroup.Value = matGroups.Keys(0)
+        Else
+            MatGroup.Value = ""
+        End If
+    End If
+    If index <> 5 Then
+        For Each key In Class.Keys
+            ValClass.AddItem key
+        Next key
+        If Class.count = 1 Then
+            ValClass.Value = Class.Keys(0)
+        Else
+            ValClass.Value = ""
+        End If
+    End If
+    If index <> 6 Then
+        For Each key In mats.Keys
+            Material.AddItem key
+        Next key
+        If mats.count = 1 Then
+            Material.Value = mats.Keys(0)
+        Else
+            Material.Value = ""
+        End If
+    End If
+    If index <> 7 Then
+        For Each key In nums.Keys
+            MatNum.AddItem key
+        Next key
+        If nums.count = 1 Then
+            MatNum.Value = nums.Keys(0)
+        Else
+            MatNum.Value = ""
+        End If
+    End If
+    clearing = False
+    Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=3, Criteria1:=mats.Keys, Operator:=xlFilterValues
+End Function
+
+'Function to return count of unique number of customers, and also the total sales value over the period
+Function countCust() As Variant()
+    Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=5, Criteria1:=Array("601", "602", "633"), Operator:=xlFilterValues
+    Dim dict As Scripting.Dictionary: Set dict = New Scripting.Dictionary
+    Dim rng As Range
+    Dim lr As Long
+    lr = Worksheets("MOVEMENT").Range("A" & Rows.count).End(xlUp).Row
+    On Error Resume Next
+    Set rng = Worksheets("MOVEMENT").Range("I2:Q" & lr).Rows.SpecialCells(xlCellTypeVisible)
+    Dim total As Double
+    total = 0
+    On Error GoTo 0
+    If Not rng Is Nothing Then
+        For a = 1 To rng.Areas.count
+            For r = 1 To rng.Areas(a).Rows.count
+                On Error Resume Next
+                total = total + rng.Areas(a).Cells(r, 9).Value
+                On Error GoTo 0
+                dict(rng.Areas(a).Cells(r, 7).Value) = True
+            Next r
+        Next a
+    End If
+    countCust = Array(dict.count, total)
+    Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=5
+End Function
+
+'Returns total number of unique suppliers, and unique PO lines, and total purchase lines
+Function countSup() As Variant()
+    Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=5, Criteria1:=Array("101", "102"), Operator:=xlFilterValues
+    Dim dict As Scripting.Dictionary: Set dict = New Scripting.Dictionary
+    Dim dict2 As Scripting.Dictionary: Set dict2 = New Scripting.Dictionary
+    Dim rng As Range
+    Dim lr As Long
+    lr = Worksheets("MOVEMENT").Range("A" & Rows.count).End(xlUp).Row
+    On Error Resume Next
+    Set rng = Worksheets("MOVEMENT").Range("K2:P" & lr).Rows.SpecialCells(xlCellTypeVisible)
+    On Error GoTo 0
+    Dim count As Long
+    count = 0
+    If Not rng Is Nothing Then
+        For a = 1 To rng.Areas.count
+            For r = 1 To rng.Areas(a).Rows.count
+                If Not IsError(rng.Areas(a).Cells(r, 6).Value) Then
+                    dict(rng.Areas(a).Cells(r, 6).Value) = True
+                    dict2(rng.Areas(a).Cells(r, 1).Value) = True
+                    count = count + 1
+                End If
+            Next r
+        Next a
+    End If
+    countSup = Array(dict.count, dict2.count, count)
+    Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=5
+End Function
+
+'Returns total weight of used materials
+Private Function countUsed() As Double
+    Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=5, Criteria1:=Array("261", "262"), Operator:=xlFilterValues
+    Dim rng As Range
+    Dim lr As Long
+    lr = Worksheets("MOVEMENT").Range("A" & Rows.count).End(xlUp).Row
+    On Error Resume Next
+    Set rng = Worksheets("MOVEMENT").Range("R2:R" & lr).Rows.SpecialCells(xlCellTypeVisible)
+    On Error GoTo 0
+    Dim total As Double
+    total = 0
+    If Not rng Is Nothing Then
+        For Each cll In rng
+            total = total - cll.Value
+        Next cll
+    End If
+    countUsed = total
+    Worksheets("MOVEMENT").Range("A1").AutoFilter Field:=5
+End Function
+
+'Handles when the "Raw Material" variable is selected and generates the available options
+Private Sub Variables_Change()
+    If Variables.selected(2) Then
+        Dim res() As Variant
+        res = genRaws
+        Raws.Clear
+        For Each raw In res
+            Raws.AddItem raw
+        Next raw
+    End If
+End Sub

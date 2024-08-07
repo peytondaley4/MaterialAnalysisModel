@@ -1,0 +1,27 @@
+﻿Private Sub Workbook_Open()
+'Fill listboxes with options, clear all entries, and set listbox height and width
+    With Sheet3
+        .Variables.Clear
+        .Variables.AddItem "Sales"
+        .Variables.AddItem "Units Sold"
+        .Variables.AddItem "Raw Material"
+        .Variables.AddItem "Weight Used"
+        .Variables.AddItem "Weight Sold"
+        .Plant.Clear
+        .Plant.AddItem "All"
+        .Plant.AddItem "4002"
+        .Plant.AddItem "4003"
+        .Plant.AddItem "4022"
+        .GroupBy.Clear
+        .GroupBy.AddItem "Yearly"
+        .GroupBy.AddItem "Quarterly"
+        .GroupBy.AddItem "Monthly"
+        .Plant.Height = 60
+        .Plant.Width = 50
+        .Variables.Height = 65
+        .Variables.Width = 80
+        Call .Clear_Click
+        Call .fillBoxes(0)
+    End With
+    Call Sheet4.Clear_Click
+End Sub
